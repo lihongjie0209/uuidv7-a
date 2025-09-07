@@ -1,5 +1,9 @@
 # UUIDv7a - 可认证的UUID
 
+[![CI/CD Pipeline](https://github.com/lihongjie0209/uuidv7-a/actions/workflows/ci.yml/badge.svg)](https://github.com/lihongjie0209/uuidv7-a/actions/workflows/ci.yml)
+[![Java Version](https://img.shields.io/badge/Java-8%2B-orange.svg)](https://www.oracle.com/java/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 UUIDv7a是基于UUIDv7标准扩展的可认证UUID实现，在保持时间戳排序特性的同时，增加了HMAC认证标签，确保UUID的真实性和完整性。
 
 ## 特性
