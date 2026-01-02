@@ -12,7 +12,8 @@
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <junit.version>4.13.2</junit.version>
+        <junit.jupiter.version>5.10.1</junit.jupiter.version>
+        <jqwik.version>1.8.2</jqwik.version>
         <maven.surefire.version>3.0.0</maven.surefire.version>
         <maven.compiler.version>3.11.0</maven.compiler.version>
         <spotbugs.maven.version>4.7.3.6</spotbugs.maven.version>
@@ -21,10 +22,19 @@
     </properties>
 
     <dependencies>
+        <!-- JUnit 5 (Jupiter) -->
         <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-            <version>${junit.version}</version>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+        
+        <!-- jqwik 属性测试框架 (基于 JUnit 5 平台) -->
+        <dependency>
+            <groupId>net.jqwik</groupId>
+            <artifactId>jqwik</artifactId>
+            <version>${jqwik.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
