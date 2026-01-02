@@ -266,17 +266,31 @@ class UUIDv7aTest {
     
     @Test
     public void testTamperingDetection() {
-        String uuid = UUIDv7a.generateString(secretKey);
-        
-        // 篡改最后一个字符
-        String tampered1 = uuid.substring(0, uuid.length() - 1) + "0";
-        assertFalse(UUIDv7a.verifyString(tampered1, secretKey));
-        
-        // 篡改中间字符
-        char[] chars = uuid.toCharArray();
-        chars[10] = chars[10] == '0' ? '1' : '0';
-        String tampered2 = new String(chars);
-        assertFalse(UUIDv7a.verifyString(tampered2, secretKey));
+        // 生成多个 UUID 并测试，确保测试的健壮性
+        for (int i = 0; i < 10; i++) {
+            String uuid = UUIDv7a.generateString(secretKey);
+            
+            // 篡改最后一个字符（LSB部分，包含认证标签）
+            char lastChar = uuid.charAt(uuid.length() - 1);
+            char tamperedChar = lastChar == '0' ? 'f' : '0';
+            String tampered1 = uuid.substring(0, uuid.length() - 1) + tamperedChar;
+            assertFalse(UUIDv7a.verifyString(tampered1, secretKey), 
+                "Tampered UUID should fail verification: " + uuid + " -> " + tampered1);
+            
+            // 篡改中间部分（非连字符位置）
+            char[] chars = uuid.toCharArray();
+            // 找到第一个非连字符位置并篡改
+            for (int j = 0; j < chars.length; j++) {
+                if (chars[j] != '-') {
+                    char original = chars[j];
+                    chars[j] = original == '0' ? 'f' : '0';
+                    String tampered2 = new String(chars);
+                    assertFalse(UUIDv7a.verifyString(tampered2, secretKey),
+                        "Tampered UUID should fail verification at position " + j + ": " + uuid + " -> " + tampered2);
+                    break;
+                }
+            }
+        }
     }
     
     // ========== 实例方法测试 ==========
