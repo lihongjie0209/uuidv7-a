@@ -278,4 +278,181 @@ class UUIDv7aTest {
         String tampered2 = new String(chars);
         assertFalse(UUIDv7a.verifyString(tampered2, secretKey));
     }
+    
+    // ========== 实例方法测试 ==========
+    
+    @Test
+    public void testInstanceCreationWithSecretKey() {
+        UUIDv7a generator = new UUIDv7a(secretKey);
+        assertNotNull(generator);
+    }
+    
+    @Test
+    public void testInstanceCreationWithSecretKeyAndAuthTagBits() {
+        UUIDv7a generator = new UUIDv7a(secretKey, 32);
+        assertNotNull(generator);
+    }
+    
+    @Test
+    public void testInstanceCreationWithPassword() {
+        UUIDv7a generator = new UUIDv7a("password123");
+        assertNotNull(generator);
+    }
+    
+    @Test
+    public void testInstanceCreationWithPasswordAndAuthTagBits() {
+        UUIDv7a generator = new UUIDv7a("password123", 56);
+        assertNotNull(generator);
+    }
+    
+    @Test
+    public void testInstanceGenerateString() {
+        UUIDv7a generator = new UUIDv7a(secretKey);
+        String uuid = generator.generateString();
+        
+        assertNotNull(uuid);
+        assertEquals(36, uuid.length());
+        assertTrue(uuid.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"));
+    }
+    
+    @Test
+    public void testInstanceGenerateBytes() {
+        UUIDv7a generator = new UUIDv7a(secretKey);
+        byte[] uuidBytes = generator.generateBytes();
+        
+        assertNotNull(uuidBytes);
+        assertEquals(16, uuidBytes.length);
+    }
+    
+    @Test
+    public void testInstanceGenerate() {
+        UUIDv7a generator = new UUIDv7a(secretKey);
+        UUID uuid = generator.generate();
+        
+        assertNotNull(uuid);
+    }
+    
+    @Test
+    public void testInstanceVerifyString() {
+        UUIDv7a generator = new UUIDv7a(secretKey);
+        String uuid = generator.generateString();
+        
+        assertTrue(generator.verifyString(uuid));
+    }
+    
+    @Test
+    public void testInstanceVerifyBytes() {
+        UUIDv7a generator = new UUIDv7a(secretKey);
+        byte[] uuidBytes = generator.generateBytes();
+        
+        assertTrue(generator.verifyBytes(uuidBytes));
+    }
+    
+    @Test
+    public void testInstanceVerify() {
+        UUIDv7a generator = new UUIDv7a(secretKey);
+        UUID uuid = generator.generate();
+        
+        assertTrue(generator.verify(uuid));
+    }
+    
+    @Test
+    public void testInstanceVerifyFailsWithWrongKey() {
+        UUIDv7a generator1 = new UUIDv7a(secretKey);
+        String uuid = generator1.generateString();
+        
+        byte[] differentKey = new byte[32];
+        Arrays.fill(differentKey, (byte) 0x99);
+        UUIDv7a generator2 = new UUIDv7a(differentKey);
+        
+        assertFalse(generator2.verifyString(uuid));
+    }
+    
+    @Test
+    public void testInstanceGetConfigDescription() {
+        UUIDv7a generator1 = new UUIDv7a(secretKey, UUIDv7a.Config.HIGH_UNIQUENESS_TAG_BITS);
+        assertEquals("高唯一性配置 (42位随机 + 32位标签)", generator1.getConfigDescription());
+        
+        UUIDv7a generator2 = new UUIDv7a(secretKey, UUIDv7a.Config.BALANCED_TAG_BITS);
+        assertEquals("均衡配置 (26位随机 + 48位标签)", generator2.getConfigDescription());
+        
+        UUIDv7a generator3 = new UUIDv7a(secretKey, UUIDv7a.Config.HIGH_SECURITY_TAG_BITS);
+        assertEquals("高安全性配置 (12位随机 + 62位标签)", generator3.getConfigDescription());
+    }
+    
+    @Test
+    public void testInstanceGetMaxIdsPerMillisecond() {
+        UUIDv7a generator = new UUIDv7a(secretKey, 48);
+        long maxIds = generator.getMaxIdsPerMillisecond();
+        assertTrue(maxIds > 0);
+    }
+    
+    @Test
+    public void testInstanceMultipleGenerations() {
+        UUIDv7a generator = new UUIDv7a(secretKey);
+        
+        String uuid1 = generator.generateString();
+        String uuid2 = generator.generateString();
+        String uuid3 = generator.generateString();
+        
+        assertNotEquals(uuid1, uuid2);
+        assertNotEquals(uuid2, uuid3);
+        assertNotEquals(uuid1, uuid3);
+        
+        assertTrue(generator.verifyString(uuid1));
+        assertTrue(generator.verifyString(uuid2));
+        assertTrue(generator.verifyString(uuid3));
+    }
+    
+    @Test
+    public void testInstanceWithDifferentConfigs() {
+        UUIDv7a gen32 = new UUIDv7a(secretKey, 32);
+        UUIDv7a gen48 = new UUIDv7a(secretKey, 48);
+        UUIDv7a gen62 = new UUIDv7a(secretKey, 62);
+        
+        String uuid32 = gen32.generateString();
+        String uuid48 = gen48.generateString();
+        String uuid62 = gen62.generateString();
+        
+        assertTrue(gen32.verifyString(uuid32));
+        assertTrue(gen48.verifyString(uuid48));
+        assertTrue(gen62.verifyString(uuid62));
+        
+        // 使用错误的配置验证应失败
+        assertFalse(gen32.verifyString(uuid48));
+        assertFalse(gen48.verifyString(uuid62));
+        assertFalse(gen62.verifyString(uuid32));
+    }
+    
+    @Test
+    public void testInstancePasswordBasedGeneration() {
+        UUIDv7a generator = new UUIDv7a("mySecurePassword");
+        
+        String uuid = generator.generateString();
+        assertTrue(generator.verifyString(uuid));
+        
+        // 相同密码应该能验证
+        UUIDv7a generator2 = new UUIDv7a("mySecurePassword");
+        assertTrue(generator2.verifyString(uuid));
+        
+        // 不同密码应该失败
+        UUIDv7a generator3 = new UUIDv7a("differentPassword");
+        assertFalse(generator3.verifyString(uuid));
+    }
+    
+    @Test
+    public void testInstanceSecretKeyDefensiveCopy() {
+        byte[] key = new byte[32];
+        Arrays.fill(key, (byte) 0x42);
+        
+        UUIDv7a generator = new UUIDv7a(key);
+        String uuid1 = generator.generateString();
+        
+        // 修改原始密钥不应影响生成器
+        Arrays.fill(key, (byte) 0x00);
+        String uuid2 = generator.generateString();
+        
+        assertTrue(generator.verifyString(uuid1));
+        assertTrue(generator.verifyString(uuid2));
+    }
 }

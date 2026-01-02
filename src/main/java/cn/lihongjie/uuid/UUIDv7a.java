@@ -16,7 +16,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * UUIDv7a - 可认证的UUID静态工具类
+ * UUIDv7a - 可认证的UUID工具类
  * 基于UUIDv7的时间戳排序特性，增加了HMAC认证标签
  * 
  * 设计布局 (128位):
@@ -27,9 +27,19 @@ import java.util.UUID;
  * - rand_b (n位): 剩余随机位
  * - auth_tag (m位): 认证标签 (其中 n + m = 62)
  * 
+ * 使用方式：
+ * 1. 实例模式（推荐）：
+ *    UUIDv7a generator = new UUIDv7a(secretKey);
+ *    String uuid = generator.generateString();
+ *    boolean valid = generator.verifyString(uuid);
+ * 
+ * 2. 静态方法模式：
+ *    String uuid = UUIDv7a.generateString(secretKey);
+ *    boolean valid = UUIDv7a.verifyString(uuid, secretKey);
+ * 
  * @author lihongjie
  */
-public final class UUIDv7a {
+public class UUIDv7a {
     
     private static final String HMAC_ALGORITHM = "HmacSHA256";
     private static final String KDF_ALGORITHM = "PBKDF2WithHmacSHA256";
@@ -56,9 +66,116 @@ public final class UUIDv7a {
     
     private static final SecureRandom RANDOM = new SecureRandom();
     
-    // 私有构造函数，防止实例化
-    private UUIDv7a() {
-        throw new UnsupportedOperationException("This is a utility class and cannot be instantiated");
+    // ========== 实例字段 ==========
+    
+    private final byte[] secretKey;
+    private final int authTagBits;
+    
+    // ========== 构造函数 ==========
+    
+    /**
+     * 使用密钥创建 UUIDv7a 生成器（使用默认配置）
+     * @param secretKey 密钥
+     */
+    public UUIDv7a(byte[] secretKey) {
+        this(secretKey, DEFAULT_AUTH_TAG_BITS);
+    }
+    
+    /**
+     * 使用密钥和配置创建 UUIDv7a 生成器
+     * @param secretKey 密钥
+     * @param authTagBits 认证标签位数
+     */
+    public UUIDv7a(byte[] secretKey, int authTagBits) {
+        validateInputs(secretKey, authTagBits);
+        this.secretKey = secretKey.clone(); // 防御性复制
+        this.authTagBits = authTagBits;
+    }
+    
+    /**
+     * 使用密码字符串创建 UUIDv7a 生成器（使用默认配置）
+     * @param password 密码字符串
+     */
+    public UUIDv7a(String password) {
+        this(deriveKeyFromPassword(password), DEFAULT_AUTH_TAG_BITS);
+    }
+    
+    /**
+     * 使用密码字符串和配置创建 UUIDv7a 生成器
+     * @param password 密码字符串
+     * @param authTagBits 认证标签位数
+     */
+    public UUIDv7a(String password, int authTagBits) {
+        this(deriveKeyFromPassword(password), authTagBits);
+    }
+    
+    // ========== 实例方法 ==========
+    
+    /**
+     * 生成 UUIDv7a 字符串
+     * @return UUID 字符串格式
+     */
+    public String generateString() {
+        return generateUUID(this.secretKey, this.authTagBits).toString();
+    }
+    
+    /**
+     * 生成 UUIDv7a 字节数组
+     * @return 128位字节数组
+     */
+    public byte[] generateBytes() {
+        return uuidToBytes(generateUUID(this.secretKey, this.authTagBits));
+    }
+    
+    /**
+     * 生成 UUIDv7a UUID对象
+     * @return UUID对象
+     */
+    public UUID generate() {
+        return generateUUID(this.secretKey, this.authTagBits);
+    }
+    
+    /**
+     * 验证 UUIDv7a 字符串
+     * @param uuidString UUID字符串
+     * @return 验证结果
+     */
+    public boolean verifyString(String uuidString) {
+        return verifyString(uuidString, this.secretKey, this.authTagBits);
+    }
+    
+    /**
+     * 验证 UUIDv7a 字节数组
+     * @param uuidBytes 128位字节数组
+     * @return 验证结果
+     */
+    public boolean verifyBytes(byte[] uuidBytes) {
+        return verifyBytes(uuidBytes, this.secretKey, this.authTagBits);
+    }
+    
+    /**
+     * 验证 UUIDv7a UUID对象
+     * @param uuid UUID对象
+     * @return 验证结果
+     */
+    public boolean verify(UUID uuid) {
+        return verifyUUID(uuid, this.secretKey, this.authTagBits);
+    }
+    
+    /**
+     * 获取当前配置描述
+     * @return 配置描述
+     */
+    public String getConfigDescription() {
+        return getConfigDescription(this.authTagBits);
+    }
+    
+    /**
+     * 获取当前配置每毫秒的最大ID数量
+     * @return 每毫秒最大ID数量
+     */
+    public long getMaxIdsPerMillisecond() {
+        return getMaxIdsPerMillisecond(this.authTagBits);
     }
     
     /**
