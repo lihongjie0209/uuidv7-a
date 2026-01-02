@@ -209,7 +209,7 @@ class UUIDv7aPropertyTest {
     /**
      * 属性：相同密码应该派生出相同的密钥
      */
-    @Property
+    @Property(tries = 100)  // 减少测试次数以提升 Java 8 性能（PBKDF2 计算密集）
     @Label("相同密码必须派生相同密钥")
     void samePasswordShouldDeriveIdenticalKeys(@ForAll("passwords") String password) {
         byte[] key1 = UUIDv7a.deriveKeyFromPassword(password);
@@ -222,7 +222,7 @@ class UUIDv7aPropertyTest {
     /**
      * 属性：不同密码应该派生出不同的密钥
      */
-    @Property
+    @Property(tries = 100)  // 减少测试次数以提升 Java 8 性能（PBKDF2 计算密集）
     @Label("不同密码必须派生不同密钥")
     void differentPasswordsShouldDeriveDifferentKeys(@ForAll("passwords") String password1,
                                                      @ForAll("passwords") String password2) {
@@ -238,7 +238,7 @@ class UUIDv7aPropertyTest {
     /**
      * 属性：派生的密钥长度应该是 32 字节
      */
-    @Property
+    @Property(tries = 100)  // 减少测试次数以提升 Java 8 性能（PBKDF2 计算密集）
     @Label("派生的密钥长度必须为 32 字节")
     void derivedKeyShouldBe32Bytes(@ForAll("passwords") String password) {
         byte[] key = UUIDv7a.deriveKeyFromPassword(password);
