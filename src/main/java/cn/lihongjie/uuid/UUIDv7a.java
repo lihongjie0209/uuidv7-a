@@ -1,12 +1,18 @@
 package cn.lihongjie.uuid;
 
 import javax.crypto.Mac;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.security.spec.InvalidKeySpecException;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -26,12 +32,27 @@ import java.util.UUID;
 public final class UUIDv7a {
     
     private static final String HMAC_ALGORITHM = "HmacSHA256";
+    private static final String KDF_ALGORITHM = "PBKDF2WithHmacSHA256";
     private static final int VERSION = 0xF; // 版本号 F (私有版本)
     private static final int VARIANT = 0x2; // 变体号 10 (二进制)
     
     // 默认配置：26位随机 + 48位标签 (均衡配置)
     private static final int DEFAULT_AUTH_TAG_BITS = 48;
     private static final int TOTAL_RANDOM_AND_TAG_BITS = 62;
+    
+    // PBKDF2 配置
+    private static final int PBKDF2_ITERATIONS = 100000; // OWASP 推荐最低值
+    private static final int KEY_LENGTH = 256; // 32字节密钥
+    
+    // 密钥派生缓存（LRU缓存，最多保存1000个条目）
+    private static final int CACHE_MAX_SIZE = 1000;
+    private static final Map<CacheKey, byte[]> KEY_DERIVATION_CACHE = 
+        java.util.Collections.synchronizedMap(new LinkedHashMap<CacheKey, byte[]>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<CacheKey, byte[]> eldest) {
+                return size() > CACHE_MAX_SIZE;
+            }
+        });
     
     private static final SecureRandom RANDOM = new SecureRandom();
     
@@ -146,8 +167,8 @@ public final class UUIDv7a {
         int randA = RANDOM.nextInt(1 << 12); // 12位随机数
         long randB = randomBits > 0 ? (RANDOM.nextLong() & ((1L << randomBits) - 1)) : 0;
         
-        // 3. 构造预认证部分 (66位: 48 + 4 + 12 + 2)
-        byte[] preImage = buildPreImage(timestamp, randA);
+        // 3. 构造预认证部分（包含randB）
+        byte[] preImage = buildPreImage(timestamp, randA, randB, authTagBits);
         
         // 4. 计算HMAC并截断
         long authTag = calculateAuthTag(preImage, secretKey, authTagBits);
@@ -239,8 +260,8 @@ public final class UUIDv7a {
                 return false;
             }
             
-            // 3. 重建预认证部分
-            byte[] preImage = buildPreImage(structure.timestamp, structure.randA);
+            // 3. 重建预认证部分（包含randB）
+            byte[] preImage = buildPreImage(structure.timestamp, structure.randA, structure.randB, authTagBits);
             
             // 4. 重新计算认证标签
             long expectedAuthTag = calculateAuthTag(preImage, secretKey, authTagBits);
@@ -275,17 +296,86 @@ public final class UUIDv7a {
     }
     
     /**
-     * 从密码字符串派生密钥
+     * 从密码字符串派生密钥（使用固定盐值）
+     * 注意：为了安全性，建议使用 deriveKeyFromPassword(password, salt) 提供随机盐值
      * @param password 密码字符串
-     * @return 派生的密钥
+     * @return 派生的32字节密钥
      */
     public static byte[] deriveKeyFromPassword(String password) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return digest.digest(password.getBytes(StandardCharsets.UTF_8));
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("SHA-256 algorithm not available", e);
+        // 使用固定盐值以保持向后兼容性（不推荐用于生产环境）
+        byte[] salt = "UUIDv7a-Default-Salt".getBytes(StandardCharsets.UTF_8);
+        return deriveKeyFromPassword(password, salt);
+    }
+    
+    /**
+     * 从密码字符串和盐值派生密钥（推荐使用）
+     * 使用 PBKDF2WithHmacSHA256 算法，迭代 100,000 次
+     * 结果会被缓存以提高性能
+     * @param password 密码字符串
+     * @param salt 盐值（建议至少16字节的随机值）
+     * @return 派生的32字节密钥
+     */
+    public static byte[] deriveKeyFromPassword(String password, byte[] salt) {
+        if (password == null || password.isEmpty()) {
+            throw new IllegalArgumentException("Password cannot be null or empty");
         }
+        if (salt == null || salt.length < 8) {
+            throw new IllegalArgumentException("Salt must be at least 8 bytes");
+        }
+        
+        // 检查缓存
+        CacheKey cacheKey = new CacheKey(password, salt);
+        byte[] cachedKey = KEY_DERIVATION_CACHE.get(cacheKey);
+        if (cachedKey != null) {
+            return cachedKey.clone(); // 返回副本以防止修改
+        }
+        
+        // 计算密钥
+        try {
+            PBEKeySpec spec = new PBEKeySpec(
+                password.toCharArray(),
+                salt,
+                PBKDF2_ITERATIONS,
+                KEY_LENGTH
+            );
+            
+            SecretKeyFactory factory = SecretKeyFactory.getInstance(KDF_ALGORITHM);
+            byte[] derivedKey = factory.generateSecret(spec).getEncoded();
+            
+            // 存入缓存
+            KEY_DERIVATION_CACHE.put(cacheKey, derivedKey.clone());
+            
+            return derivedKey;
+            
+        } catch (NoSuchAlgorithmException | InvalidKeySpecException e) {
+            throw new RuntimeException("Failed to derive key from password", e);
+        }
+    }
+    
+    /**
+     * 生成随机盐值
+     * @return 32字节随机盐值
+     */
+    public static byte[] generateRandomSalt() {
+        byte[] salt = new byte[32];
+        RANDOM.nextBytes(salt);
+        return salt;
+    }
+    
+    /**
+     * 清除密钥派生缓存
+     * 可用于安全考虑或内存管理
+     */
+    public static void clearKeyDerivationCache() {
+        KEY_DERIVATION_CACHE.clear();
+    }
+    
+    /**
+     * 获取当前缓存大小
+     * @return 缓存中的条目数量
+     */
+    public static int getKeyDerivationCacheSize() {
+        return KEY_DERIVATION_CACHE.size();
     }
     
     /**
@@ -328,24 +418,81 @@ public final class UUIDv7a {
         }
     }
     
-    private static byte[] buildPreImage(long timestamp, int randA) {
-        // 构造66位的预认证数据
-        // 格式: timestamp(48) + version(4) + randA(12) + variant(2)
-        byte[] preImage = new byte[9]; // 66位需要9字节 (72位，有6位填充)
+    private static byte[] buildPreImage(long timestamp, int randA, long randB, int authTagBits) {
+        // 构建预认证数据：包含除authTag之外的所有数据
+        // timestamp (48位) + version (4位) + randA (12位) + variant (2位) + randB (n位)
+        int randomBits = TOTAL_RANDOM_AND_TAG_BITS - authTagBits;
+        int totalBits = 48 + 4 + 12 + 2 + randomBits; // 66 + randomBits
+        int byteCount = (totalBits + 7) / 8; // 向上取整
         
-        // 写入时间戳 (48位)
-        for (int i = 0; i < 6; i++) {
-            preImage[i] = (byte) (timestamp >>> (40 - i * 8));
+        byte[] preImage = new byte[byteCount];
+        
+        // 按位构建数据
+        long bitBuffer = 0;
+        int bitsInBuffer = 0;
+        int byteIndex = 0;
+        
+        // 写入timestamp (48位)
+        for (int i = 47; i >= 0; i--) {
+            bitBuffer = (bitBuffer << 1) | ((timestamp >>> i) & 1);
+            bitsInBuffer++;
+            if (bitsInBuffer == 8) {
+                preImage[byteIndex++] = (byte) bitBuffer;
+                bitBuffer = 0;
+                bitsInBuffer = 0;
+            }
         }
         
-        // 写入版本 + randA的高4位 (8位)
-        preImage[6] = (byte) ((VERSION << 4) | (randA >>> 8));
+        // 写入version (4位)
+        for (int i = 3; i >= 0; i--) {
+            bitBuffer = (bitBuffer << 1) | ((VERSION >>> i) & 1);
+            bitsInBuffer++;
+            if (bitsInBuffer == 8) {
+                preImage[byteIndex++] = (byte) bitBuffer;
+                bitBuffer = 0;
+                bitsInBuffer = 0;
+            }
+        }
         
-        // 写入randA的低8位 (8位)
-        preImage[7] = (byte) (randA & 0xFF);
+        // 写入randA (12位)
+        for (int i = 11; i >= 0; i--) {
+            bitBuffer = (bitBuffer << 1) | ((randA >>> i) & 1);
+            bitsInBuffer++;
+            if (bitsInBuffer == 8) {
+                preImage[byteIndex++] = (byte) bitBuffer;
+                bitBuffer = 0;
+                bitsInBuffer = 0;
+            }
+        }
         
-        // 写入变体 (2位，左对齐到字节)
-        preImage[8] = (byte) (VARIANT << 6);
+        // 写入variant (2位)
+        for (int i = 1; i >= 0; i--) {
+            bitBuffer = (bitBuffer << 1) | ((VARIANT >>> i) & 1);
+            bitsInBuffer++;
+            if (bitsInBuffer == 8) {
+                preImage[byteIndex++] = (byte) bitBuffer;
+                bitBuffer = 0;
+                bitsInBuffer = 0;
+            }
+        }
+        
+        // 写入randB (randomBits位)
+        if (randomBits > 0) {
+            for (int i = randomBits - 1; i >= 0; i--) {
+                bitBuffer = (bitBuffer << 1) | ((randB >>> i) & 1);
+                bitsInBuffer++;
+                if (bitsInBuffer == 8) {
+                    preImage[byteIndex++] = (byte) bitBuffer;
+                    bitBuffer = 0;
+                    bitsInBuffer = 0;
+                }
+            }
+        }
+        
+        // 写入剩余位（如果有）
+        if (bitsInBuffer > 0) {
+            preImage[byteIndex] = (byte) (bitBuffer << (8 - bitsInBuffer));
+        }
         
         return preImage;
     }
@@ -415,7 +562,17 @@ public final class UUIDv7a {
         // 解析LSB
         structure.variant = (int) (lsb >>> 62); // 高2位
         
+        int randomBits = TOTAL_RANDOM_AND_TAG_BITS - authTagBits;
+        
+        // 提取认证标签（最低位）
         structure.authTag = lsb & ((1L << authTagBits) - 1);
+        
+        // 提取randB（在variant之后，authTag之前）
+        if (randomBits > 0) {
+            structure.randB = (lsb >>> authTagBits) & ((1L << randomBits) - 1);
+        } else {
+            structure.randB = 0;
+        }
         
         return structure;
     }
@@ -455,6 +612,40 @@ public final class UUIDv7a {
         int version;
         int randA;
         int variant;
+        long randB;  // 随机数B部分
         long authTag;
+    }
+    
+    // 缓存键类
+    private static class CacheKey {
+        private final String password;
+        private final byte[] salt;
+        private final int hashCode;
+        
+        CacheKey(String password, byte[] salt) {
+            this.password = password;
+            this.salt = salt.clone();
+            this.hashCode = computeHashCode();
+        }
+        
+        private int computeHashCode() {
+            int result = password.hashCode();
+            result = 31 * result + Arrays.hashCode(salt);
+            return result;
+        }
+        
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) return true;
+            if (!(obj instanceof CacheKey)) return false;
+            CacheKey other = (CacheKey) obj;
+            return password.equals(other.password) && 
+                   Arrays.equals(salt, other.salt);
+        }
+        
+        @Override
+        public int hashCode() {
+            return hashCode;
+        }
     }
 }
